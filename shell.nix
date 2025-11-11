@@ -92,6 +92,7 @@ pkgs.mkShell {
     pkgs.pipewire
 
     pkgs.ydotool
+    pkgs.pre-commit
   ];
 
   shellHook = ''
