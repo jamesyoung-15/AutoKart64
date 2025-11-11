@@ -2,33 +2,45 @@
 
 let
   pythonEnv = pkgs.python312.withPackages (ps: [ 
+    # PyTorch with ROCm support
     ps.torchWithRocm
     (ps.torchvision.override { torch = ps.torchWithRocm; })
     (ps.torchaudio.override { torch = ps.torchWithRocm; })
+    
+    # common ml/data science packages
     ps.scipy
     ps.scikit-learn
     ps.scikit-image
     ps.pandas
     ps.matplotlib
+    ps.ipykernel
+    ps.jupyterlab
+    (ps.opencv4.override { enableGtk2 = true; })
+
     ps.gymnasium
-    ps.stable-baselines3.override {torch = ps.torchWithRocm;}
+    ps.pygame
+    (ps.stable-baselines3.override {torch = ps.torchWithRocm;})
+
+    ps.python-dotenv
+    ps.pytest
+
+    ps.pygobject3
+    ps.gst-python
+    ps.pydbus
+    ps.dbus-python
+    ps.evdev
   ]);
 
 in
 pkgs.mkShell {
   nativeBuildInputs = with pkgs; [
-    # Compilers and toolchains
     gcc
     lldb
     gdb
-
-    # Build systems and package managers
     cmake
     ninja
     meson
     pkg-config
-
-    # Project helpers
     ccache
     gnumake
     git
@@ -39,7 +51,7 @@ pkgs.mkShell {
     pythonEnv
     rocmPackages.clr
 
-    # C++ Libraries
+    # libraries for building Mupen64Plus
     boost
     elfutils
     ncurses
@@ -68,6 +80,19 @@ pkgs.mkShell {
     libGL
     glib
     libglvnd
+
+    # gstreamer
+    pkgs.gst_all_1.gstreamer
+    pkgs.gst_all_1.gst-plugins-base
+    pkgs.gst_all_1.gst-plugins-good
+    pkgs.gst_all_1.gst-plugins-bad
+    pkgs.gst_all_1.gst-plugins-ugly
+    pkgs.gst_all_1.gst-plugins-base
+    pkgs.gobject-introspection
+    pkgs.pipewire
+
+    pkgs.ydotool
+    pkgs.pre-commit
   ];
 
   shellHook = ''
@@ -79,7 +104,17 @@ pkgs.mkShell {
       pkgs.libGL
       pkgs.glib
       pkgs.libglvnd
+      pkgs.zlib
     ]}"
     alias python="python3.12"
+
+    # Start ydotoold if not already running
+    if ! pgrep -x ydotoold >/dev/null 2>&1; then
+      echo "Starting ydotoold..."
+      ydotoold --socket /tmp/ydotool_socket &
+      disown
+    else
+      echo "ydotoold already running."
+    fi
   '';
 }
