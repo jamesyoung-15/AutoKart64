@@ -6,26 +6,27 @@
 # https://github.com/actions/labeler
 
 name: Labeler
-on: 
-  [pull_request_target]:
+
+on:
+  pull_request_target:
     types:
-    - opened
-    - reopened
-    - synchronize
-    - ready_for_review
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
 
 jobs:
   label:
-
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
 
     steps:
-    - uses: actions/checkout@v4
-      with:
-        ref: main  # Checkout the base branch where labeler.yml is stored
-    - uses: actions/labeler@v4
-      with:
-        repo-token: "${{ secrets.GITHUB_TOKEN }}"
+      - uses: actions/checkout@v4
+        with:
+          ref: main  # Checkout the base branch where labeler.yml is stored
+
+      - uses: actions/labeler@v4
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
