@@ -73,6 +73,7 @@ pkgs.mkShell {
     nasm
     mesa
     bintools-unwrapped # resolve dis-asm
+    pkgs.pre-commit
 
     # Libraries needed for PyTorch
     libz
@@ -92,7 +93,7 @@ pkgs.mkShell {
     pkgs.pipewire
 
     pkgs.ydotool
-    pkgs.pre-commit
+    pkgs.libinput
   ];
 
   shellHook = ''
