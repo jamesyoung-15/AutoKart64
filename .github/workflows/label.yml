@@ -17,6 +17,9 @@ jobs:
       pull-requests: write
 
     steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: main  # Checkout the base branch where labeler.yml is stored
     - uses: actions/labeler@v4
       with:
         repo-token: "${{ secrets.GITHUB_TOKEN }}"
