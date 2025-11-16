@@ -21,6 +21,7 @@ cloudpickle==3.1.1
 comm==0.2.2
 contourpy==1.3.1
 cycler==0.12.1
+dasbus==1.7
 dbus-python==1.4.0
 decorator==5.2.1
 defusedxml==0.8.0rc2
@@ -108,7 +109,6 @@ pure_eval==0.2.3
 pybind11==2.13.6
 pycairo==1.27.0
 pycparser==2.22
-pydbus==0.6.0
 pygame==2.6.1
 Pygments==2.19.1
 PyGObject==3.50.0
@@ -126,6 +126,7 @@ requests==2.32.3
 rfc3339_validator==0.1.4
 rfc3986_validator==0.1.1
 rpds-py==0.24.0
+ruff==0.11.13
 scikit-image==0.25.2
 scikit-learn==1.6.1
 scipy==1.15.3

@@ -26,9 +26,11 @@ let
 
     ps.pygobject3
     ps.gst-python
-    ps.pydbus
     ps.dbus-python
+    ps.dasbus
     ps.evdev
+
+    ps.ruff
   ]);
 
 in
@@ -89,8 +91,11 @@ pkgs.mkShell {
     pkgs.gst_all_1.gst-plugins-bad
     pkgs.gst_all_1.gst-plugins-ugly
     pkgs.gst_all_1.gst-plugins-base
+    pkgs.gst_all_1.gst-libav
     pkgs.gobject-introspection
     pkgs.pipewire
+    pkgs.cacert
+    pkgs.glib-networking
 
     pkgs.ydotool
     pkgs.libinput
@@ -108,6 +113,7 @@ pkgs.mkShell {
       pkgs.zlib
     ]}"
     alias python="python3.12"
+    export GIO_EXTRA_MODULES="${pkgs.glib-networking}/lib/gio/modules"
 
     # Start ydotoold if not already running
     if ! pgrep -x ydotoold >/dev/null 2>&1; then
