@@ -3,12 +3,8 @@
 
 import ctypes
 import _ctypes
-import subprocess
-import time
 import os
-import sys
-import threading
-from ctypes import CDLL, c_void_p, c_char_p, c_int, POINTER
+from ctypes import CDLL
 
 # header file defines
 from emulator.defs import *
@@ -112,7 +108,7 @@ class M64Py:
             )
         except AttributeError:
             raise Exception("Plugin version error.")
-        except OSError as err:
+        except OSError:
             raise Exception("Plugin version error.")
         else:
             if rval == M64ERR_SUCCESS:
@@ -146,7 +142,7 @@ class M64Py:
                     plugin_desc,
                     plugin_version,
                 )
-        except OSError as e:
+        except OSError:
             raise Exception("Error loading plugin")
 
     def plugin_load_all(self, plugin_location: str):

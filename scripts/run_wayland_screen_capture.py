@@ -1,9 +1,9 @@
 import time
 
 import cv2
-import numpy as np
 
 from screen_capture.wayland_screen_capture import WaylandScreenCapture
+
 
 def process_image(image):
     # Convert to grayscale
