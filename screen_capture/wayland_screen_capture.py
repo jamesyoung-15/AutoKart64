@@ -1,45 +1,44 @@
 import re
-import time
 
-import cv2
 import numpy as np
-import dbus
-from dbus.mainloop.glib import DBusGMainLoop
+from dasbus.connection import SessionMessageBus
+from dasbus.typing import get_variant
 
 import gi
-gi.require_version('GLib', '2.0')
-gi.require_version('GObject', '2.0')
-gi.require_version('Gst', '1.0')
-from gi.repository import GLib, Gst # type: ignore
 
-DBusGMainLoop(set_as_default=True)
+gi.require_version("GLib", "2.0")
+gi.require_version("GObject", "2.0")
+gi.require_version("Gst", "1.0")
+from gi.repository import GLib, Gst, Gio  # type: ignore
+
 Gst.init(None)
 
 
 class WaylandScreenCapture:
-    """ 
-    Class to capture screen on Wayland using PipeWire and GStreamer,
-    integrated with OpenCV for frame processing.
-    """
-    
     def __init__(self):
-        """ Initialize the Wayland screen capture session. """
         self.loop = GLib.MainLoop()
-        self.bus = dbus.SessionBus()
+        self.bus = SessionMessageBus()
         self.request_iface = "org.freedesktop.portal.Request"
         self.screen_cast_iface = "org.freedesktop.portal.ScreenCast"
-        
+
         self.request_token_counter = 0
         self.session_token_counter = 0
-        self.sender_name = re.sub(r"\.", r"_", self.bus.get_unique_name()[1:])
+
+        if self.bus.connection is None:
+            raise Exception("Failed to connect to D-Bus session bus")
+        self.sender_name = re.sub(
+            r"\.", r"_", self.bus.connection.get_unique_name()[1:]
+        )
 
         self.session = None
         self.pipeline = None
         self.node_id = None
         self.fd = None
 
-        self.portal = self.bus.get_object(
-            "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop"
+        self.portal = self.bus.get_proxy(
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            self.screen_cast_iface,
         )
 
         # For OpenCV frame capture
@@ -64,19 +63,32 @@ class WaylandScreenCapture:
         )
         return (path, token)
 
-    def screen_cast_call(self, method, callback, *args, options={}):
-        (request_path, request_token) = self.new_request_path()
-        self.bus.add_signal_receiver(
-            callback,
-            "Response",
-            self.request_iface,
-            "org.freedesktop.portal.Desktop",
-            request_path,
-        )
-        options["handle_token"] = request_token
-        method(*(args + (options,)), dbus_interface=self.screen_cast_iface)
+    def screen_cast_call(self, method, callback, *args, options=None):
+        if self.bus.connection is None:
+            raise Exception("D-Bus connection is not available")
 
-    def on_start_response(self, response, results):
+        if options is None:
+            options = {}
+
+        (request_path, request_token) = self.new_request_path()
+
+        self.bus.connection.signal_subscribe(
+            "org.freedesktop.portal.Desktop",
+            self.request_iface,
+            "Response",
+            request_path,
+            None,
+            0,
+            callback,
+        )
+
+        options["handle_token"] = get_variant("s", request_token)
+        method(*(args + (options,)))
+
+    def on_start_response(self, connection, sender, path, interface, signal, params):
+        response = params[0]
+        results = params[1]
+
         if response != 0:
             print(f"Failed to start: {response}")
             self.loop.quit()
@@ -89,7 +101,12 @@ class WaylandScreenCapture:
             self.setup_pipewire_stream(node_id)
             break
 
-    def on_select_sources_response(self, response, results):
+    def on_select_sources_response(
+        self, connection, sender, path, interface, signal, params
+    ):
+        response = params[0]
+        results = params[1]
+
         if response != 0:
             print(f"Failed to select sources: {response}")
             self.loop.quit()
@@ -100,7 +117,12 @@ class WaylandScreenCapture:
             self.portal.Start, self.on_start_response, self.session, ""
         )
 
-    def on_create_session_response(self, response, results):
+    def on_create_session_response(
+        self, connection, sender, path, interface, signal, params
+    ):
+        response = params[0]
+        results = params[1]
+
         if response != 0:
             print(f"Failed to create session: {response}")
             self.loop.quit()
@@ -114,20 +136,31 @@ class WaylandScreenCapture:
             self.on_select_sources_response,
             self.session,
             options={
-                "multiple": False,
-                "types": dbus.UInt32(2),  # 1 = monitor, 2 = window
+                "multiple": get_variant("b", False),
+                "types": get_variant("u", 2),  # 1 = monitor, 2 = window
             },
         )
 
     def setup_pipewire_stream(self, node_id):
         """Setup GStreamer pipeline with appsink for OpenCV"""
-        empty_dict = dbus.Dictionary(signature="sv")
-        fd_object = self.portal.OpenPipeWireRemote(
-            self.session, empty_dict, dbus_interface=self.screen_cast_iface
+        if self.bus.connection is None:
+            raise Exception("D-Bus connection is not available")
+
+        result = self.bus.connection.call_with_unix_fd_list_sync(
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            self.screen_cast_iface,
+            "OpenPipeWireRemote",
+            GLib.Variant("(oa{sv})", (self.session, {})),
+            GLib.VariantType("(h)"),
+            Gio.DBusCallFlags.NONE,
+            -1,
+            None,
+            None,
         )
-        if not fd_object:
-            raise Exception("Failed to open PipeWire remote")
-        self.fd = fd_object.take()
+        variant_result, fd_list = result  # type: ignore
+        fd_index = variant_result.unpack()[0]
+        self.fd = fd_list.get(fd_index)
 
         # Create pipeline with appsink for OpenCV integration
         pipeline_str = (
@@ -186,7 +219,7 @@ class WaylandScreenCapture:
         self.screen_cast_call(
             self.portal.CreateSession,
             self.on_create_session_response,
-            options={"session_handle_token": session_token},
+            options={"session_handle_token": get_variant("s", session_token)},
         )
 
         # Run the main loop in a separate thread or use timeout
@@ -204,7 +237,7 @@ class WaylandScreenCapture:
 
         print("Capture started successfully!")
 
-    def read_frame(self):
+    def read_frame(self, return_latest_frame=False):
         """Read the latest frame (call this in your main loop)"""
         # Iterate GLib context to process new samples
         context = GLib.MainContext.default()
@@ -212,6 +245,8 @@ class WaylandScreenCapture:
 
         if self.frame_ready:
             self.frame_ready = False
+            return self.latest_frame
+        if return_latest_frame:
             return self.latest_frame
         return None
 
