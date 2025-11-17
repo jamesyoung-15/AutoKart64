@@ -24,6 +24,8 @@ let
     ps.python-dotenv
     ps.pytest
 
+    ps.mss
+
     ps.pygobject3
     ps.gst-python
     ps.dbus-python
