@@ -24,11 +24,15 @@ let
     ps.python-dotenv
     ps.pytest
 
+    ps.mss
+
     ps.pygobject3
     ps.gst-python
-    ps.pydbus
     ps.dbus-python
+    ps.dasbus
     ps.evdev
+
+    ps.ruff
   ]);
 
 in
@@ -73,6 +77,7 @@ pkgs.mkShell {
     nasm
     mesa
     bintools-unwrapped # resolve dis-asm
+    pkgs.pre-commit
 
     # Libraries needed for PyTorch
     libz
@@ -88,11 +93,14 @@ pkgs.mkShell {
     pkgs.gst_all_1.gst-plugins-bad
     pkgs.gst_all_1.gst-plugins-ugly
     pkgs.gst_all_1.gst-plugins-base
+    pkgs.gst_all_1.gst-libav
     pkgs.gobject-introspection
     pkgs.pipewire
+    pkgs.cacert
+    pkgs.glib-networking
 
     pkgs.ydotool
-    pkgs.pre-commit
+    pkgs.libinput
   ];
 
   shellHook = ''
@@ -107,6 +115,7 @@ pkgs.mkShell {
       pkgs.zlib
     ]}"
     alias python="python3.12"
+    export GIO_EXTRA_MODULES="${pkgs.glib-networking}/lib/gio/modules"
 
     # Start ydotoold if not already running
     if ! pgrep -x ydotoold >/dev/null 2>&1; then
