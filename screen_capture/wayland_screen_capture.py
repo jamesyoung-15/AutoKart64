@@ -15,7 +15,25 @@ Gst.init(None)
 
 
 class WaylandScreenCapture:
+    """
+    Captures screen content on Wayland using XDG Desktop Portal, PipeWire, and GStreamer.
+
+    Workflow:
+    1. Connects to the D-Bus session bus to communicate with the XDG Desktop Portal
+    2. Creates a screen capture session through the ScreenCast portal interface
+    3. Prompts the user to select a window/screen to capture
+    4. Receives a PipeWire stream containing the screen content
+    5. Sets up a GStreamer pipeline to decode and provide frames as NumPy arrays
+
+    Usage:
+        >>> capture = WaylandScreenCapture()
+        >>> capture.start_capture()  # User selects window
+        >>> frame = capture.read_frame()  # Returns BGR NumPy array
+        >>> capture.stop()
+    """
+
     def __init__(self):
+        """Init D-bus connection, portal proxy, and other variables"""
         self.loop = GLib.MainLoop()
         self.bus = SessionMessageBus()
         self.request_iface = "org.freedesktop.portal.Request"
@@ -45,7 +63,14 @@ class WaylandScreenCapture:
         self.latest_frame = None
         self.frame_ready = False
 
-    def new_request_path(self):
+    def new_request_path(self) -> tuple[str, str]:
+        """
+        Generates a new unique D-bus request path and token for async portal calls
+
+        Returns:
+            tuple[str, str]: (request_path, request_token) for portal method options
+        """
+
         self.request_token_counter += 1
         token = "u%d" % self.request_token_counter
         path = "/org/freedesktop/portal/desktop/request/%s/%s" % (
@@ -54,7 +79,13 @@ class WaylandScreenCapture:
         )
         return (path, token)
 
-    def new_session_path(self):
+    def new_session_path(self) -> tuple[str, str]:
+        """
+        Generate unique D-Bus session path.
+
+        Returns:
+            tuple[str, str]: (session_path, session_token) for CreateSession options
+        """
         self.session_token_counter += 1
         token = "u%d" % self.session_token_counter
         path = "/org/freedesktop/portal/desktop/session/%s/%s" % (
@@ -63,7 +94,15 @@ class WaylandScreenCapture:
         )
         return (path, token)
 
-    def screen_cast_call(self, method, callback, *args, options=None):
+    def screen_cast_call(self, method, callback, *args, options=None) -> None:
+        """
+        Helper to call portal
+
+        Args:
+            method: Portal method to call (e.g., self.portal.CreateSession)
+            callback: Function called when Response signal arrives
+            options: D-Bus options dict (handle_token added automatically)
+        """
         if self.bus.connection is None:
             raise Exception("D-Bus connection is not available")
 
@@ -85,41 +124,23 @@ class WaylandScreenCapture:
         options["handle_token"] = get_variant("s", request_token)
         method(*(args + (options,)))
 
-    def on_start_response(self, connection, sender, path, interface, signal, params):
-        response = params[0]
-        results = params[1]
-
-        if response != 0:
-            print(f"Failed to start: {response}")
-            self.loop.quit()
-            return
-
-        print("Stream started successfully")
-        for node_id, stream_properties in results["streams"]:
-            print(f"Got stream node_id: {node_id}")
-            self.node_id = node_id
-            self.setup_pipewire_stream(node_id)
-            break
-
-    def on_select_sources_response(
-        self, connection, sender, path, interface, signal, params
-    ):
-        response = params[0]
-        results = params[1]
-
-        if response != 0:
-            print(f"Failed to select sources: {response}")
-            self.loop.quit()
-            return
-
-        print("Sources selected")
-        self.screen_cast_call(
-            self.portal.Start, self.on_start_response, self.session, ""
-        )
-
     def on_create_session_response(
         self, connection, sender, path, interface, signal, params
-    ):
+    ) -> None:
+        """
+        Handles CreateSession response,
+        then calls SelectSources (part of step 1 of workflow)
+
+        Args:
+            connection: D-Bus connection object
+            sender: D-Bus sender name
+            path: D-Bus object path where the signal originated
+            interface: D-Bus interface name
+            signal: Signal name ("Response")
+            params: Tuple containing:
+                - params[0] (int): Response code (0 = success)
+                - params[1] (dict): Results dictionary with "session_handle" key
+        """
         response = params[0]
         results = params[1]
 
@@ -141,8 +162,79 @@ class WaylandScreenCapture:
             },
         )
 
-    def setup_pipewire_stream(self, node_id):
-        """Setup GStreamer pipeline with appsink for OpenCV"""
+    def on_select_sources_response(
+        self, connection, sender, path, interface, signal, params
+    ) -> None:
+        """
+        Handles SelectSources response ((part of step 2 of workflow)
+        then calls Start (triggering step 3).
+
+        Args:
+            connection: D-Bus connection object
+            sender: D-Bus sender name
+            path: D-Bus object path where the signal originated
+            interface: D-Bus interface name
+            signal: Signal name ("Response")
+            params: Tuple containing:
+                - params[0] (int): Response code (0 = success, 1 = user cancelled)
+                - params[1] (dict): Results dictionary (empty for this call)
+        """
+        response = params[0]
+
+        if response != 0:
+            print(f"Failed to select sources: {response}")
+            self.loop.quit()
+            return
+
+        self.screen_cast_call(
+            self.portal.Start, self.on_start_response, self.session, ""
+        )
+
+    def on_start_response(
+        self, connection, sender, path, interface, signal, params
+    ) -> None:
+        """
+        Handle the Response signal from Start portal call.
+
+        This method extracts the node_id and proceeds to step 4
+        (setting up the GStreamer pipeline).
+
+        Args:
+            connection: D-Bus connection object
+            sender: D-Bus sender name
+            path: D-Bus object path where the signal originated
+            interface: D-Bus interface name
+            signal: Signal name ("Response")
+            params: Tuple containing:
+                - params[0] (int): Response code (0 = success)
+                - params[1] (dict): Results with "streams" key containing list of:
+                    [(node_id: int, properties: dict), ...]
+        """
+        response = params[0]
+        results = params[1]
+
+        if response != 0:
+            print(f"Failed to start: {response}")
+            self.loop.quit()
+            return
+
+        print("Stream started successfully")
+        for node_id, stream_properties in results["streams"]:
+            print(f"Got stream node_id: {node_id}")
+            self.node_id = node_id
+            self.setup_pipewire_stream(node_id)
+            break
+
+    def setup_pipewire_stream(self, node_id: int) -> None:
+        """
+        Setup GStreamer pipeline to receive and decode the PipeWire stream.
+
+        Part of step 4 of the workflow. It:
+        1. Calls OpenPipeWireRemote to get a file descriptor for the PipeWire stream
+        2. Creates a GStreamer pipeline: pipewiresrc -> videoconvert -> appsink
+        3. Connects the appsink callback to receive decoded frames
+        4. Starts the pipeline playing
+        """
         if self.bus.connection is None:
             raise Exception("D-Bus connection is not available")
 
@@ -183,7 +275,15 @@ class WaylandScreenCapture:
         print("Pipeline started")
 
     def on_new_sample(self, sink):
-        """Callback when new frame is available"""
+        """
+        Gstreamer callback to extract frame buffer from appsink,
+        convert to numpy BGR array.
+
+        Args:
+            sink: The appsink element emitting the sample
+        Returns:
+            Gst.FlowReturn.OK
+        """
         sample = sink.emit("pull-sample")
         if sample:
             buf = sample.get_buffer()
@@ -211,7 +311,9 @@ class WaylandScreenCapture:
         return Gst.FlowReturn.OK
 
     def start_capture(self):
-        """Start the screen capture session"""
+        """
+        Start the screen capture session which will show the portal dialog.
+        """
         print("Starting screen capture session...")
         print("A dialog will appear - select your screen and click 'Share'")
 
@@ -237,8 +339,8 @@ class WaylandScreenCapture:
 
         print("Capture started successfully!")
 
-    def read_frame(self, return_latest_frame=False):
-        """Read the latest frame (call this in your main loop)"""
+    def read_frame(self, return_latest_frame=False) -> np.ndarray | None:
+        """Get the latest captured frame as a BGR numpy array."""
         # Iterate GLib context to process new samples
         context = GLib.MainContext.default()
         context.iteration(False)
@@ -251,7 +353,7 @@ class WaylandScreenCapture:
         return None
 
     def stop(self):
-        """Stop the capture"""
+        """Stop the pipeline and cleanup"""
         if self.pipeline:
             self.pipeline.set_state(Gst.State.NULL)
         if hasattr(self, "loop"):
