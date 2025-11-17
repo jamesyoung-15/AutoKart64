@@ -1,11 +1,13 @@
 import time
+from collections import deque
 
 import cv2
+import numpy as np
 
 from screen_capture.wayland_screen_capture import WaylandScreenCapture
 
 
-def process_image(image):
+def process_image(image: np.ndarray) -> np.ndarray:
     # Convert to grayscale
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     # Apply Gaussian blur
@@ -21,8 +23,8 @@ def main():
     try:
         # Start capture (this will show the portal dialog)
         capture.start_capture()
-        start_time = time.time()
-        frame_count = 0
+        last_time = time.time()
+        frame_times = deque(maxlen=30)
 
         print("Screen capture active. Press 'q' to quit.")
 
@@ -33,9 +35,14 @@ def main():
             if frame is not None:
                 # Process with OpenCV
                 # Example: Add frame counter and FPS info
-                frame_count += 1
-                elapsed_time = time.time() - start_time
-                fps = frame_count / elapsed_time if elapsed_time > 0 else 0
+                elapsed_time = time.time() - last_time
+                frame_times.append(elapsed_time)
+                last_time = time.time()
+                if len(frame_times) > 1:
+                    fps = len(frame_times) / sum(frame_times)
+                else:
+                    fps = 0.0
+
                 # cv2.putText(frame, f'Frame: {frame_count}', (10, 30),
                 # cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
