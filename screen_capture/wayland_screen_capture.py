@@ -1,4 +1,5 @@
 import re
+import logging
 
 import numpy as np
 from dasbus.connection import SessionMessageBus
@@ -12,6 +13,9 @@ gi.require_version("Gst", "1.0")
 from gi.repository import GLib, Gst, Gio  # type: ignore
 
 Gst.init(None)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class WaylandScreenCapture:
@@ -43,6 +47,7 @@ class WaylandScreenCapture:
         self.session_token_counter = 0
 
         if self.bus.connection is None:
+            logger.error("Failed to connect to D-Bus session bus")
             raise Exception("Failed to connect to D-Bus session bus")
         self.sender_name = re.sub(
             r"\.", r"_", self.bus.connection.get_unique_name()[1:]
@@ -104,6 +109,7 @@ class WaylandScreenCapture:
             options: D-Bus options dict (handle_token added automatically)
         """
         if self.bus.connection is None:
+            logger.error("D-Bus connection is not available")
             raise Exception("D-Bus connection is not available")
 
         if options is None:
@@ -145,12 +151,12 @@ class WaylandScreenCapture:
         results = params[1]
 
         if response != 0:
-            print(f"Failed to create session: {response}")
+            logger.error(f"Failed to create session: {response}")
             self.loop.quit()
             return
 
         self.session = results["session_handle"]
-        print(f"Session created: {self.session}")
+        logger.info(f"Session created: {self.session}")
 
         self.screen_cast_call(
             self.portal.SelectSources,
@@ -182,7 +188,7 @@ class WaylandScreenCapture:
         response = params[0]
 
         if response != 0:
-            print(f"Failed to select sources: {response}")
+            logger.error(f"Failed to select sources: {response}")
             self.loop.quit()
             return
 
@@ -214,13 +220,11 @@ class WaylandScreenCapture:
         results = params[1]
 
         if response != 0:
-            print(f"Failed to start: {response}")
+            logger.error(f"Failed to start: {response}")
             self.loop.quit()
             return
 
-        print("Stream started successfully")
         for node_id, stream_properties in results["streams"]:
-            print(f"Got stream node_id: {node_id}")
             self.node_id = node_id
             self.setup_pipewire_stream(node_id)
             break
@@ -236,6 +240,7 @@ class WaylandScreenCapture:
         4. Starts the pipeline playing
         """
         if self.bus.connection is None:
+            logger.error("D-Bus connection is not available")
             raise Exception("D-Bus connection is not available")
 
         result = self.bus.connection.call_with_unix_fd_list_sync(
@@ -263,7 +268,7 @@ class WaylandScreenCapture:
             "appsink name=sink emit-signals=true max-buffers=1 drop=true"
         )
 
-        print(f"Creating pipeline: {pipeline_str}")
+        logger.info(f"Creating pipeline: {pipeline_str}")
         self.pipeline = Gst.parse_launch(pipeline_str)
 
         # Get the appsink element
@@ -272,7 +277,6 @@ class WaylandScreenCapture:
 
         # Start playing
         self.pipeline.set_state(Gst.State.PLAYING)
-        print("Pipeline started")
 
     def on_new_sample(self, sink):
         """
@@ -314,8 +318,7 @@ class WaylandScreenCapture:
         """
         Start the screen capture session which will show the portal dialog.
         """
-        print("Starting screen capture session...")
-        print("A dialog will appear - select your screen and click 'Share'")
+        logger.info("Starting screen capture session...")
 
         (session_path, session_token) = self.new_session_path()
         self.screen_cast_call(
@@ -335,9 +338,8 @@ class WaylandScreenCapture:
             timeout += 1
 
         if self.pipeline is None:
+            logger.error("Failed to start capture - timeout or user cancelled")
             raise Exception("Failed to start capture - timeout or user cancelled")
-
-        print("Capture started successfully!")
 
     def read_frame(self, return_latest_frame=False) -> np.ndarray | None:
         """Get the latest captured frame as a BGR numpy array."""
